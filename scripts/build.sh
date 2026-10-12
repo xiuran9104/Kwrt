@@ -72,6 +72,7 @@ git_clone_path() {
 export -f git_clone_path
 
 bash devices/common/diy.sh
+awk '!/^#/ && !seen[$1]++ || /^#/' feeds.conf.default > /tmp/f && mv /tmp/f feeds.conf.default
 cp -f devices/common/.config .config
 cat devices/$TARGET/.config >> .config
 rm -rf package/nss-packages package/sqm-scripts-nss
