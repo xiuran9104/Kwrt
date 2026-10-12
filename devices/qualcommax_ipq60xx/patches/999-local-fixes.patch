@@ -1,0 +1,240 @@
+diff --git feeds/kiddin9 0026
+index 875302c2..e78e62dc 100644
+--- a/feeds/kiddin9/luci-app-openclash/luasrc/model/cbi/openclash/config-subscribe-edit.lua
++++ b/feeds/kiddin9/luci-app-openclash/luasrc/model/cbi/openclash/config-subscribe-edit.lua
+@@ -223,12 +223,14 @@ o = s:option(ListValue, "template", translate("Template Name"))
+ o.rmempty = true
+ o:depends("sub_convert", "1")
+ file = io.open("/usr/share/openclash/res/sub_ini.list", "r");
++if file then
+ for l in file:lines() do
+ 	if l ~= "" and l ~= nil then
+ 		o:value(string.sub(luci.sys.exec(string.format("echo '%s' |awk -F ',' '{print $1}' 2>/dev/null",l)),1,-2))
+ 	end
+ end
+ file:close()
++end
+ o:value("0", translate("Custom Template"))
+ 
+ ---- Custom Template
+diff --git feeds/kiddin9 0026
+index 3694743c..21b5c69d 100644
+--- a/feeds/kiddin9/luci-app-openclash/root/etc/config/openclash
++++ b/feeds/kiddin9/luci-app-openclash/root/etc/config/openclash
+@@ -8,7 +8,6 @@ config openclash 'config'
+ 	option dns_port '7874'
+ 	option enable '0'
+ 	option update '0'
+-	option en_mode '0'
+ 	option auto_update '0'
+ 	option auto_update_time '0'
+ 	option cn_port '9090'
+@@ -18,7 +17,7 @@ config openclash 'config'
+ 	option ipv6_dns '0'
+ 	option enable_custom_clash_rules '0'
+ 	option core_version '0'
+-	option en_mode 'fake-ip'
++	option en_mode 'redir-host'
+ 	option enable_redirect_dns '1'
+ 	option disable_masq_cache '1'
+ 	option log_level '0'
+@@ -27,12 +26,13 @@ config openclash 'config'
+ 	option enable_udp_proxy '1'
+ 	option disable_udp_quic '1'
+ 	option lan_ac_mode '0'
+-	option operation_mode 'fake-ip'
++	option operation_mode 'redir-host'
+ 	option enable_rule_proxy '0'
+ 	option redirect_dns '0'
+ 	option cachesize_dns '0'
+ 	option filter_aaaa_dns '0'
+-	option small_flash_memory '0'
++	option small_flash_memory '1'
++	option github_address_mod 'https://cdn.jsdelivr.net/'
+ 	option interface_name '0'
+ 	option common_ports '0'
+ 	option log_size '1024'
+@@ -45,7 +45,6 @@ config openclash 'config'
+ 	option append_wan_dns '0'
+ 	option stream_auto_select '0'
+ 	option bypass_gateway_compatible '0'
+-	option github_address_mod '0'
+ 	option urltest_address_mod '0'
+ 	option urltest_interval_mod '0'
+ 	option delay_start '0'
+diff --git feeds/kiddin9 0026
+index f4219f5d..dc9022c4 100644
+--- a/feeds/kiddin9/net-snmp-ssl/Makefile
++++ b/feeds/kiddin9/net-snmp-ssl/Makefile
+@@ -182,7 +182,7 @@ SNMP_TRANSPORTS_INCLUDED = Callback UDP Unix
+ 
+ SNMP_TRANSPORTS_EXCLUDED = TCP TCPIPv6
+ 
+-TARGET_CFLAGS += $(FPIC)
++TARGET_CFLAGS += $(FPIC) -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion
+ TARGET_CPPFLAGS += -I$(STAGING_DIR)/usr/include/libnl-tiny
+ 
+ CONFIGURE_ARGS += \
+diff --git feeds/kiddin9 0026
+index dd95e73a..727559d1 100644
+--- a/feeds/kiddin9/shortcut-fe/fast-classifier/Makefile
++++ b/feeds/kiddin9/shortcut-fe/fast-classifier/Makefile
+@@ -24,7 +24,7 @@ define KernelPackage/fast-classifier/Default
+   SECTION:=kernel
+   CATEGORY:=Kernel modules
+   SUBMENU:=Network Support
+-  DEPENDS:=+kmod-ipt-conntrack +kmod-shortcut-fe
++  DEPENDS:=+kmod-ipt-conntrack +kmod-shortcut-fe +kmod-shortcut-fe-cm
+   TITLE:=Kernel driver for FAST Classifier
+   FILES:=$(PKG_BUILD_DIR)/fast-classifier.ko
+   KCONFIG:= \
+diff --git feeds/kiddin9 0026
+index 03337520..1f86d683 100644
+--- a/feeds/kiddin9/shortcut-fe/fast-classifier/src/fast-classifier.c
++++ b/feeds/kiddin9/shortcut-fe/fast-classifier/src/fast-classifier.c
+@@ -1270,7 +1270,7 @@ static void fast_classifier_update_mark(struct sfe_connection_mark *mark, bool i
+ static int fast_classifier_conntrack_event(struct notifier_block *this,
+ 					   unsigned long events, void *ptr)
+ #else
+-static int fast_classifier_conntrack_event(unsigned int events, struct nf_ct_event *item)
++static int fast_classifier_conntrack_event(unsigned int events, const struct nf_ct_event *item)
+ #endif
+ {
+ #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
+@@ -1424,7 +1424,7 @@ static struct notifier_block fast_classifier_conntrack_notifier = {
+ };
+ #else
+ static struct nf_ct_event_notifier fast_classifier_conntrack_notifier = {
+-	.fcn = fast_classifier_conntrack_event,
++	.ct_event = fast_classifier_conntrack_event,
+ };
+ #endif
+ #endif
+@@ -1839,7 +1839,7 @@ static int __init fast_classifier_init(void)
+ #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
+ 	result = nf_conntrack_register_chain_notifier(&init_net, &fast_classifier_conntrack_notifier);
+ #else
+-	result = nf_conntrack_register_notifier(&init_net, &fast_classifier_conntrack_notifier);
++	nf_conntrack_register_notifier(&init_net, &fast_classifier_conntrack_notifier);
+ #endif
+ 	if (result < 0) {
+ 		DEBUG_ERROR("can't register nf notifier hook: %d\n", result);
+@@ -1917,7 +1917,7 @@ exit5:
+ #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
+ 	nf_conntrack_unregister_chain_notifier(&init_net, &fast_classifier_conntrack_notifier);
+ #else
+-	nf_conntrack_unregister_notifier(&init_net, &fast_classifier_conntrack_notifier);
++	nf_conntrack_unregister_notifier(&init_net);
+ #endif
+ 
+ exit4:
+@@ -1989,7 +1989,7 @@ static void __exit fast_classifier_exit(void)
+ #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
+ 	nf_conntrack_unregister_chain_notifier(&init_net, &fast_classifier_conntrack_notifier);
+ #else
+-	nf_conntrack_unregister_notifier(&init_net, &fast_classifier_conntrack_notifier);
++	nf_conntrack_unregister_notifier(&init_net);
+ #endif
+ #endif
+ 	nf_unregister_net_hooks(&init_net, fast_classifier_ops_post_routing, ARRAY_SIZE(fast_classifier_ops_post_routing));
+diff --git feeds/kiddin9 0026
+index e7dc48b4..d4e4fccf 100644
+--- a/feeds/kiddin9/shortcut-fe/shortcut-fe/src/sfe_cm.c
++++ b/feeds/kiddin9/shortcut-fe/shortcut-fe/src/sfe_cm.c
+@@ -719,7 +719,7 @@ sfe_cm_ipv6_post_routing_hook(hooknum, ops, skb, in_unused, out, okfn)
+ static int sfe_cm_conntrack_event(struct notifier_block *this,
+ 				  unsigned long events, void *ptr)
+ #else
+-static int sfe_cm_conntrack_event(unsigned int events, struct nf_ct_event *item)
++static int sfe_cm_conntrack_event(unsigned int events, const struct nf_ct_event *item)
+ #endif
+ {
+ #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
+@@ -792,6 +792,9 @@ static int sfe_cm_conntrack_event(unsigned int events, struct nf_ct_event *item)
+ 	return NOTIFY_DONE;
+ }
+ 
++int (*athrs_fast_nat_recv)(struct sk_buff *skb) = NULL;
++EXPORT_SYMBOL(athrs_fast_nat_recv);
++
+ /*
+  * Netfilter conntrack event system to monitor connection tracking changes
+  */
+@@ -801,7 +804,7 @@ static struct notifier_block sfe_cm_conntrack_notifier = {
+ };
+ #else
+ static struct nf_ct_event_notifier sfe_cm_conntrack_notifier = {
+-	.fcn = sfe_cm_conntrack_event,
++	.ct_event = sfe_cm_conntrack_event,
+ };
+ #endif
+ #endif
+@@ -1104,7 +1107,7 @@ static int __init sfe_cm_init(void)
+ #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
+ 	result = nf_conntrack_register_chain_notifier(&init_net, &sfe_cm_conntrack_notifier);
+ #else
+-	result = nf_conntrack_register_notifier(&init_net, &sfe_cm_conntrack_notifier);
++	nf_conntrack_register_notifier(&init_net, &sfe_cm_conntrack_notifier);
+ #endif
+ 	if (result < 0) {
+ 		DEBUG_ERROR("can't register nf notifier hook: %d\n", result);
+@@ -1192,7 +1195,7 @@ static void __exit sfe_cm_exit(void)
+ #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
+ 	nf_conntrack_unregister_chain_notifier(&init_net, &sfe_cm_conntrack_notifier);
+ #else
+-	nf_conntrack_unregister_notifier(&init_net, &sfe_cm_conntrack_notifier);
++	nf_conntrack_unregister_notifier(&init_net);
+ #endif
+ #endif
+ 
+diff --git feeds/kiddin9 0026
+index 7f2a446a..3362d36b 100644
+--- a/feeds/kiddin9/shortcut-fe/simulated-driver/Makefile
++++ b/feeds/kiddin9/shortcut-fe/simulated-driver/Makefile
+@@ -32,7 +32,7 @@ define KernelPackage/shortcut-fe-drv
+   SECTION:=kernel
+   CATEGORY:=Kernel modules
+   SUBMENU:=Network Support
+-  DEPENDS:=@TARGET_qualcommax +kmod-shortcut-fe
++  DEPENDS:=@TARGET_qualcommax +kmod-shortcut-fe +kmod-shortcut-fe-cm
+   KCONFIG:= \
+ 	   CONFIG_NET_CLS_ACT=y \
+ 	   CONFIG_XFRM=y
+--- a/package/kernel/mac80211/patches/nss/ath10k/999-800-ath10k-Add-threaded-napi.patch
++++ b/package/kernel/mac80211/patches/nss/ath10k/999-800-ath10k-Add-threaded-napi.patch
+@@ -4,7 +4,7 @@
+  
+  	ath10k_dbg(ar, ATH10K_DBG_BOOT, "boot hif start\n");
+  
+-+	dev_set_threaded(&ar->napi_dev, true);
+++	dev_set_threaded(ar->napi_dev, true);
+  	ath10k_core_napi_enable(ar);
+  
+  	ath10k_pci_irq_enable(ar);
+@@ -14,7 +14,7 @@
+  	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+  	int ret;
+  
+-+	dev_set_threaded(&ar->napi_dev, true);
+++	dev_set_threaded(ar->napi_dev, true);
+  	ath10k_core_napi_enable(ar);
+  
+  	/* Sleep 20 ms before HIF interrupts are disabled.
+@@ -26,7 +26,7 @@
+  
+ +	snprintf(ar->napi_dev->name, sizeof(ar->napi_dev->name), "ath10k_%s",
+ +		 wiphy_name(ar->hw->wiphy));
+-+	dev_set_threaded(&ar->napi_dev, true);
+++	dev_set_threaded(ar->napi_dev, true);
+ +
+  	ret = ath10k_coredump_create(ar);
+  	if (ret)
+@@ -37,7 +37,7 @@
+  	ath10k_core_napi_enable(ar);
+  	ath10k_ce_enable_interrupts(ar);
+  	ath10k_pci_enable_intx_irq(ar);
+-+	dev_set_threaded(&ar->napi_dev, true);
+++	dev_set_threaded(ar->napi_dev, true);
+  
+  	ath10k_pci_rx_post(ar);
+  
