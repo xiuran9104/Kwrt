@@ -47,6 +47,28 @@ export TARGET
 cp -rf ../devices/common/. ./
 cp -rf ../devices/$TARGET/. ./
 cp -rf ../devices ./
+
+# 与 CI workflow 一致的 git_clone_path（按分支稀疏克隆并合并/移动到源码树）
+git_clone_path() {
+  branch="$1" rurl="$2" mv="$3"
+  [[ "$mv" != "mv" ]] && shift 2 || shift 3
+  rootdir="$PWD"
+  tmpdir="$(mktemp -d)" || exit 1
+  if [ ${#branch} -lt 10 ]; then
+    git clone -b "$branch" --depth 1 --filter=blob:none --sparse "$rurl" "$tmpdir"
+    cd "$tmpdir"
+  else
+    git clone --filter=blob:none --sparse "$rurl" "$tmpdir"
+    cd "$tmpdir"
+    git checkout $branch
+  fi
+  git sparse-checkout init --cone
+  git sparse-checkout set $@
+  [[ "$mv" != "mv" ]] && cp -rn ./* $rootdir/ || mv -n $@/* $rootdir/$@/
+  cd $rootdir
+}
+export -f git_clone_path
+
 bash devices/common/diy.sh
 cp -f devices/common/.config .config
 cat devices/$TARGET/.config >> .config
@@ -55,8 +77,8 @@ cat devices/$TARGET/.config >> .config
 cp -Rf ./diy/* ./ || true
 # 设备补丁（与 CI workflow Apply patches 逻辑一致）
 cp -rn devices/common/patches devices/$TARGET/ 2>/dev/null || true
-find devices/$TARGET/patches -maxdepth 1 -name '*.revert.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% patch -R -N --no-backup-if-mismatch -p1 -F1 -i '%'
-find devices/$TARGET/patches -maxdepth 1 -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% patch -N --no-backup-if-mismatch -p1 -F1 -i '%'
+find devices/$TARGET/patches -maxdepth 1 -name '*.revert.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% sh -c 'patch -R -N -p1 -F1 --dry-run -i "%" >/dev/null 2>&1 || patch -N --no-backup-if-mismatch -p1 -F1 -i "%"'
+find devices/$TARGET/patches -maxdepth 1 -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% sh -c 'patch -R -N -p1 -F1 --dry-run -i "%" >/dev/null 2>&1 || patch -N --no-backup-if-mismatch -p1 -F1 -i "%"'
 make defconfig
 # 非无线平台关闭无线驱动（复刻 CI 行为）
 if ! echo "$TARGET" | grep -qE 'x86|armsr|bcm27|rockchip|sunxi|amlogic|siflower'; then
