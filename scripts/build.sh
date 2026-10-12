@@ -20,7 +20,7 @@ TARGET="${1:-qualcommax_ipq60xx}"
 cd "$ROOT"
 
 echo "==== [1/5] 同步上游最新代码（本地提交自动保留） ===="
-git pull --no-rebase origin 25.12 2>/dev/null || echo "  (拉取跳过：无远端更新或离线，继续)"
+git pull --no-rebase upstream 25.12 2>/dev/null || echo "  (拉取跳过：无远端更新或离线，继续)"
 
 echo "==== [2/5] 构建环境检查 ===="
 ./scripts/setup-build-env.sh
