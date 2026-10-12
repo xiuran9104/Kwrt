@@ -72,13 +72,14 @@ export -f git_clone_path
 bash devices/common/diy.sh
 cp -f devices/common/.config .config
 cat devices/$TARGET/.config >> .config
+rm -rf package/nss-packages package/sqm-scripts-nss
 [ -f devices/$TARGET/diy.sh ] && bash devices/$TARGET/diy.sh || true
 # 与 CI workflow 一致：展平 diy/ 覆盖层进源码树（NSS 支持、自研包等）
 cp -Rf ./diy/* ./ || true
 # 设备补丁（与 CI workflow Apply patches 逻辑一致）
 cp -rn devices/common/patches devices/$TARGET/ 2>/dev/null || true
-find devices/$TARGET/patches -maxdepth 1 -name '*.revert.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% sh -c 'patch -R -N -p1 -F1 --dry-run -i "%" >/dev/null 2>&1 || patch -N --no-backup-if-mismatch -p1 -F1 -i "%"'
-find devices/$TARGET/patches -maxdepth 1 -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% sh -c 'patch -R -N -p1 -F1 --dry-run -i "%" >/dev/null 2>&1 || patch -N --no-backup-if-mismatch -p1 -F1 -i "%"'
+find devices/$TARGET/patches -maxdepth 1 -name '*.revert.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% sh -c 'patch -R -N -p1 -F1 --dry-run -i "%" >/dev/null 2>&1 || patch -N --no-backup-if-mismatch -p1 -F1 -i "%" || echo "WARN: % 已应用或跳过"'
+find devices/$TARGET/patches -maxdepth 1 -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% sh -c 'patch -R -N -p1 -F1 --dry-run -i "%" >/dev/null 2>&1 || patch -N --no-backup-if-mismatch -p1 -F1 -i "%" || echo "WARN: % 已应用或跳过"'
 make defconfig
 # 非无线平台关闭无线驱动（复刻 CI 行为）
 if ! echo "$TARGET" | grep -qE 'x86|armsr|bcm27|rockchip|sunxi|amlogic|siflower'; then
