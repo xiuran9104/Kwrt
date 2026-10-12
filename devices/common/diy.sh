@@ -67,7 +67,7 @@ sed -i 's/max_requests 3/max_requests 20/g' package/network/services/uhttpd/file
 #rm -rf ./feeds/packages/lang/{golang,node}
 sed -i "s/tty\(0\|1\)::askfirst/tty\1::respawn/g" target/linux/*/base-files/etc/inittab
 
-date="${FIRMWARE_REVISION:-$(date +%m.%d.%Y)}"
+date="${FIRMWARE_REVISION:-10.08}.$(date +%m%d)"
 sed -i -e "/\(# \)\?REVISION:=/c\REVISION:=$date" -e '/VERSION_CODE:=/c\VERSION_CODE:=$(REVISION)' include/version.mk
 
 sed -i 's/option timeout 30/option timeout 120/g' package/system/rpcd/files/rpcd.config

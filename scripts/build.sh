@@ -68,5 +68,10 @@ fi
 echo "==== [5/5] 编译（$(nproc) 线程） ===="
 make -j"$(nproc)" 2>&1 | tail -20 || { echo "编译失败，查看 openwrt/build.log"; exit 1; }
 echo
+# 产物附加带日期（月日）副本，便于区分每次构建
+for f in bin/targets/*/*/*.bin; do
+  [ -f "$f" ] && cp -f "$f" "${f%.bin}-$(date +%m%d).bin"
+done
+
 echo "==== 完成 ===="
 ls -lh bin/targets/*/*/*.bin 2>/dev/null || ls -lh bin/targets/qualcommax/ipq60xx/*.bin
