@@ -80,6 +80,21 @@ index dd95e73a..727559d1 100644
 
 
 
+
+--- a/include/kernel-version.mk
++++ b/include/kernel-version.mk
+@@ -7,9 +7,11 @@ ifdef CONFIG_TESTING_KERNEL
+ endif
+ 
+ KERNEL_DETAILS_FILE=$(GENERIC_PLATFORM_DIR)/kernel-$(KERNEL_PATCHVER)
++ifneq ($(KERNEL_PATCHVER),)
+ ifeq ($(wildcard $(KERNEL_DETAILS_FILE)),)
+   $(error Missing kernel version/hash file for $(KERNEL_PATCHVER). Please create $(KERNEL_DETAILS_FILE))
+ endif
++endif
+ 
+ include $(KERNEL_DETAILS_FILE)
+ 
 --- a/package/kernel/mac80211/patches/nss/ath10k/999-800-ath10k-Add-threaded-napi.patch
 +++ b/package/kernel/mac80211/patches/nss/ath10k/999-800-ath10k-Add-threaded-napi.patch
 @@ -4,7 +4,7 @@
@@ -118,19 +133,3 @@ index dd95e73a..727559d1 100644
   
   	ath10k_pci_rx_post(ar);
   
-
-index 5e2bff4..86f67a9 100644
---- a/include/kernel-version.mk
-+++ b/include/kernel-version.mk
-@@ -7,9 +7,11 @@ ifdef CONFIG_TESTING_KERNEL
- endif
- 
- KERNEL_DETAILS_FILE=$(GENERIC_PLATFORM_DIR)/kernel-$(KERNEL_PATCHVER)
-+ifneq ($(KERNEL_PATCHVER),)
- ifeq ($(wildcard $(KERNEL_DETAILS_FILE)),)
-   $(error Missing kernel version/hash file for $(KERNEL_PATCHVER). Please create $(KERNEL_DETAILS_FILE))
- endif
-+endif
- 
- include $(KERNEL_DETAILS_FILE)
- 
