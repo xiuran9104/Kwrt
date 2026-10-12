@@ -13,6 +13,7 @@
 #   devices/qualcommax_ipq60xx/patches/999-local-fixes.patch  全部代码修复
 #=================================================
 set -e
+set -o pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TARGET="${1:-qualcommax_ipq60xx}"
 [ "$TARGET" = "--fresh" ] && { TARGET=qualcommax_ipq60xx; FRESH=1; }
@@ -22,10 +23,7 @@ cd "$ROOT"
 echo "==== [1/5] 同步上游最新代码（本地提交自动保留） ===="
 git pull --no-rebase upstream 25.12 2>/dev/null || echo "  (拉取跳过：无远端更新或离线，继续)"
 
-echo "==== [2/5] 构建环境检查 ===="
-./scripts/setup-build-env.sh
-
-echo "==== [3/5] 准备源码树 ===="
+echo "==== [2/5] 准备源码树 ===="
 if [ -n "${FRESH:-}" ] && [ -d openwrt ]; then
   echo "  --fresh：备份并重建源码树"
   mv openwrt "openwrt.old.$(date +%s)"
@@ -36,6 +34,9 @@ if [ ! -d openwrt ]; then
   OLDEST=$(ls -dt openwrt.old.* 2>/dev/null | head -1)
   [ -n "$OLDEST" ] && cp -rn "$OLDEST/dl" openwrt/ 2>/dev/null || true
 fi
+
+echo "==== [3/5] 构建环境检查 ===="
+./scripts/setup-build-env.sh
 cd openwrt
 export PATH="$PWD/.tools/bin:$PATH"
 
@@ -52,8 +53,8 @@ cat devices/$TARGET/.config >> .config
 [ -f devices/$TARGET/diy.sh ] && bash devices/$TARGET/diy.sh || true
 # 设备补丁（与 CI workflow Apply patches 逻辑一致）
 cp -rn devices/common/patches devices/$TARGET/ 2>/dev/null || true
-find devices/$TARGET/patches -maxdepth 1 -name '*.revert.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% patch -R --no-backup-if-mismatch -p1 -F1 -i '%'
-find devices/$TARGET/patches -maxdepth 1 -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% patch --no-backup-if-mismatch -p1 -F1 -i '%'
+find devices/$TARGET/patches -maxdepth 1 -name '*.revert.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% patch -R -N --no-backup-if-mismatch -p1 -F1 -i '%'
+find devices/$TARGET/patches -maxdepth 1 -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% patch -N --no-backup-if-mismatch -p1 -F1 -i '%'
 make defconfig
 # 非无线平台关闭无线驱动（复刻 CI 行为）
 if ! echo "$TARGET" | grep -qE 'x86|armsr|bcm27|rockchip|sunxi|amlogic|siflower'; then
