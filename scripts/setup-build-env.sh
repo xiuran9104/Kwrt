@@ -10,8 +10,12 @@ MISE_INST=~/.local/share/mise/installs
 echo "== 1/4 检查 mise 工具 =="
 NEED="conda-gcc-linux-64 conda-gxx-linux-64 conda-sysroot-linux-64 conda-gcc_linux-64 conda-gxx_linux-64"
 MISS=0
-for t in conda-gcc-linux-64 conda-gxx-linux-64 conda-sysroot-linux-64 conda-zlib flex bison swig rsync unzip make cmake ccache jq; do
-  ls -d $MISE_INST/$t* >/dev/null 2>&1 || { echo "  缺: $t"; MISS=1; }
+for t in flex bison swig rsync unzip make cmake ccache jq zlib sysroot-linux-64 gcc-linux-64 gxx-linux-64 llvm-tools; do
+  found=0
+  for d in "$MISE_INST/$t" "$MISE_INST/conda-$t" "$MISE_INST/$t-"* "$MISE_INST/conda-$t-"*; do
+    [ -e "$d" ] && { found=1; break; }
+  done
+  [ "$found" = "1" ] || { echo "  缺: $t"; MISS=1; }
 done
 [ $MISS = 1 ] && { echo "请先安装缺失工具，例如:"; echo "  mise use -g conda:sysroot-linux-64 conda:zlib conda:flex conda:bison conda:swig conda:rsync conda:unzip conda:gcc_linux-64 conda:gxx_linux-64 make cmake ccache jq"; exit 1; }
 echo "  工具齐全 ✓"
