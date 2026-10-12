@@ -60,13 +60,14 @@ echo "  libz ✓"
 
 
 echo "== 3.5/4 ncurses 宿主库（prereq 检查 -lncurses 需要） =="
-NCV=$(ls $MISE_INST/conda-ncurses | grep -E '^[0-9]' | head -1)
+NCV=$(ls $MISE_INST/conda-ncurses | grep -E '^[0-9]+\.[0-9]+' | head -1)
 NC="$MISE_INST/conda-ncurses/$NCV"
 for ENV in conda-gcc-linux-64/$GCCV conda-gxx-linux-64/$GXXV; do
   SY="$MISE_INST/$ENV/x86_64-conda-linux-gnu/sysroot"
   D="$MISE_INST/$ENV/lib64"
   mkdir -p "$SY/usr/include" "$D"
   for h in ncurses.h curses.h term.h; do [ -f "$NC/include/$h" ] && ln -sf "$NC/include/$h" "$SY/usr/include/$h"; done
+  [ -d "$NC/include/ncursesw" ] && ln -sfn "$NC/include/ncursesw" "$SY/usr/include/ncursesw"
   for l in libncurses.so libncurses.so.6 libncursesw.so libncursesw.so.6 libtinfo.so libtinfo.so.6; do [ -f "$NC/lib/$l" ] && ln -sf "$NC/lib/$l" "$D/$l"; done
 done
 echo "  ncurses ✓"
