@@ -1,0 +1,5 @@
+config wififusion 'config'
+	option enabled '0'
+	option ssid ''
+	option key ''
+	option encryption 'psk2'

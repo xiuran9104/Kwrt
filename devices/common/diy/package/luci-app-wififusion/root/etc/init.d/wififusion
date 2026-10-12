@@ -1,0 +1,49 @@
+#!/bin/sh /etc/rc.common
+# WiFi Fusion：将 2.4G/5G 合并为同一 SSID 并开启 802.11k/v 漫游
+START=95
+STOP=10
+
+SECTION="config"
+
+apply_fusion() {
+	local enabled ssid key encryption
+	config_get enabled "$SECTION" enabled 0
+	[ "$enabled" = "1" ] || { logger -t wififusion "未启用，跳过"; return 0; }
+	config_get ssid "$SECTION" ssid ""
+	config_get key "$SECTION" key ""
+	config_get encryption "$SECTION" encryption ""
+
+	[ -z "$ssid" ] && { logger -t wififusion "未设置 SSID，跳过"; return 1; }
+
+	local changed=0 iface dev
+	for iface in $(uci -q show wireless | sed -n "s/^\(.*\)=wifi-iface$/\1/p" | cut -d. -f2); do
+		[ "$(uci -q get wireless.$iface.ssid)" != "$ssid" ] && {
+			uci set wireless.$iface.ssid="$ssid"; changed=1
+		}
+		[ -n "$key" ] && { uci set wireless.$iface.key="$key"; changed=1; }
+		[ -n "$encryption" ] && { uci set wireless.$iface.encryption="$encryption"; changed=1; }
+		# 802.11k/v 频段漫游（band steering）核心开关
+		for opt in ieee80211k:1 ieee80211v:1 bss_transition:1 wnm_sleep_mode:1 time_advertisement:2; do
+			o=${opt%%:*}; v=${opt##*:}
+			uci set wireless.$iface.$o="$v"
+		done
+		uci set wireless.$iface.time_zone="GMT0"
+		changed=1
+		# 确保射频未被禁用
+		dev=$(uci -q get wireless.$iface.device)
+		[ -n "$dev" ] && uci -q set wireless.$dev.disabled=0
+	done
+
+	uci commit wireless
+	if [ "$changed" = "1" ]; then
+		logger -t wififusion "双频合一已应用：SSID=$ssid，802.11k/v 漫游开启"
+		wifi reload
+	fi
+}
+
+start() {
+	config_load wififusion
+	apply_fusion
+}
+
+restart() { start; }
