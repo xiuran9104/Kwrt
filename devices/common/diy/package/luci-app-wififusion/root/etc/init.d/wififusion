@@ -1,9 +1,53 @@
 #!/bin/sh /etc/rc.common
 # WiFi Fusion：将 2.4G/5G 合并为同一 SSID 并开启 802.11k/v 漫游
+# 可选集成 usteer：AP 主动 band steering（信号阈值引导 + 弱信号剔除）
 START=95
 STOP=10
 
 SECTION="config"
+
+ensure_usteer_config() {
+	[ -f /etc/config/usteer ] || cat > /etc/config/usteer <<'EOF'
+config usteer
+	option network 'lan'
+	option syslog '1'
+	option local_mode '0'
+	option debug_level '2'
+	option band_steering_interval '30000'
+	option band_steering_min_snr '-60'
+	option min_snr '-75'
+	option min_snr_kick_delay '5000'
+	option steer_reject_timeout '60000'
+EOF
+}
+
+apply_usteer() {
+	local uenabled interval minsnr kicksnr
+	config_get uenabled "$SECTION" usteer_enabled 0
+	config_get interval "$SECTION" steer_interval 30000
+	config_get minsnr "$SECTION" steer_min_signal -60
+	config_get kicksnr "$SECTION" kick_min_signal -75
+
+	ensure_usteer_config
+	[ -n "$(uci -q show usteer 2>/dev/null)" ] || return 0
+	if [ "$uenabled" = "1" ]; then
+		uci set usteer.@usteer[0].band_steering_interval="$interval"
+		uci set usteer.@usteer[0].band_steering_min_snr="$minsnr"
+		uci set usteer.@usteer[0].min_snr="$kicksnr"
+		uci set usteer.@usteer[0].min_snr_kick_delay='5000'
+		uci set usteer.@usteer[0].steer_reject_timeout='60000'
+		uci commit usteer
+		/etc/init.d/usteer enable >/dev/null 2>&1
+		/etc/init.d/usteer restart >/dev/null 2>&1
+		logger -t wififusion "usteer 主动漫游已启用：间隔=${interval}ms 上行阈值=${minsnr}dBm 剔除阈值=${kicksnr}dBm"
+	else
+		uci set usteer.@usteer[0].band_steering_interval='0'
+		uci commit usteer
+		/etc/init.d/usteer stop >/dev/null 2>&1
+		/etc/init.d/usteer disable >/dev/null 2>&1
+		logger -t wififusion "usteer 主动漫游已关闭"
+	fi
+}
 
 apply_fusion() {
 	local enabled ssid key encryption
@@ -39,6 +83,7 @@ apply_fusion() {
 		logger -t wififusion "双频合一已应用：SSID=$ssid，802.11k/v 漫游开启"
 		wifi reload
 	fi
+	apply_usteer
 }
 
 start() {
