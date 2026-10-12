@@ -51,6 +51,8 @@ bash devices/common/diy.sh
 cp -f devices/common/.config .config
 cat devices/$TARGET/.config >> .config
 [ -f devices/$TARGET/diy.sh ] && bash devices/$TARGET/diy.sh || true
+# 与 CI workflow 一致：展平 diy/ 覆盖层进源码树（NSS 支持、自研包等）
+cp -Rf ./diy/* ./ || true
 # 设备补丁（与 CI workflow Apply patches 逻辑一致）
 cp -rn devices/common/patches devices/$TARGET/ 2>/dev/null || true
 find devices/$TARGET/patches -maxdepth 1 -name '*.revert.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% patch -R -N --no-backup-if-mismatch -p1 -F1 -i '%'
