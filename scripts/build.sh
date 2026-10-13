@@ -84,6 +84,8 @@ sed -i "s|+\tdev_set_threaded(\\&ar->napi_dev, true);|+\tdev_set_threaded(ar->na
 rm -rf feeds/kiddin9/quectel_cm_5G package/feeds/kiddin9/quectel_cm_5G
 # apk 宿主工具在 GCC16 LTO 下链接失败（apk_error_str 丢失），关闭其 LTO
 sed -i "s/-Db_lto=true/-Db_lto=false/" package/system/apk/Makefile 2>/dev/null || true
+# apk 升级到 3.0.8（上游修复 GCC16 链接问题）；MIRROR_HASH 置 skip 走 gitlab 直连
+sed -i "s|^PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=44dcdfc255c26a4e19a4a27f66a54169cce5ca72|; s|^PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=skip|; s|^PKG_VERSION=.*|PKG_VERSION=3.0.8|" package/system/apk/Makefile 2>/dev/null || true
 # 与 CI workflow 一致：展平 diy/ 覆盖层进源码树（NSS 支持、自研包等）
 cp -Rf ./diy/* ./ || true
 # 设备补丁（与 CI workflow Apply patches 逻辑一致）
