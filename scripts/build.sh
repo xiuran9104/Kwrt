@@ -82,6 +82,8 @@ rm -rf package/nss-packages package/sqm-scripts-nss
 sed -i "s|+\tdev_set_threaded(\\&ar->napi_dev, true);|+\tdev_set_threaded(ar->napi_dev, true);|g" package/kernel/mac80211/patches/nss/ath10k/999-800-ath10k-Add-threaded-napi.patch 2>/dev/null || true
 # 上游 op-packages 若出现与 quectel-cm 同名重复定义的包目录会导致 Kconfig 自引用死循环，剔除之
 rm -rf feeds/kiddin9/quectel_cm_5G package/feeds/kiddin9/quectel_cm_5G
+# apk 宿主工具在 GCC16 LTO 下链接失败（apk_error_str 丢失），关闭其 LTO
+sed -i "s/-Db_lto=true/-Db_lto=false/" package/system/apk/Makefile 2>/dev/null || true
 # 与 CI workflow 一致：展平 diy/ 覆盖层进源码树（NSS 支持、自研包等）
 cp -Rf ./diy/* ./ || true
 # 设备补丁（与 CI workflow Apply patches 逻辑一致）
