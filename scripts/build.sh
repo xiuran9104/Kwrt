@@ -148,6 +148,39 @@ find package feeds -type f -name Makefile -exec \
   sed -i -E '/^[[:space:]]*PKG_VERSION[[:space:]]*:?=/ s/-r([0-9]+)$/~\1/' {} +
 # 新版 LuCI 将所选语言直接嵌入应用，不再提供旧的独立 ttyd 中文包。
 sed -i 's/ +luci-i18n-ttyd-zh-cn//' feeds/kiddin9/luci-app-quickstart/Makefile 2>/dev/null || true
+# luci-app-package-manager 页面无限"正在载入视图…"根治：apk 索引缓存(/var/cache/apk,
+# tmpfs 重启即空)不完整时，apk query 会对全部远程仓库逐个起 wget(默认 --timeout 60 秒/
+# 仓库)，LuCI load() 同步等待即卡死。缓存缺失时改 --no-network 秒回(可用包列表为空、
+# 已安装列表不受影响)；缓存齐全时读缓存本就不联网，联网后页面自动"更新列表"预热。
+python3 - <<'PYFIX' || true
+p = 'feeds/kiddin9/luci-app-package-manager/root/usr/libexec/package-manager-call'
+try:
+    s = open(p).read()
+except OSError:
+    raise SystemExit(0)
+if '$apk_nonet' in s:
+    raise SystemExit(0)  # 已打补丁
+anchor = 'ipkg_bin="opkg"\nfi\n'
+guard = anchor + '''
+# 索引缓存(/var/cache/apk，tmpfs 重启即空)不完整时禁网查询：否则 apk 会对全部远程仓库
+# 逐个起 wget(默认 --timeout 60 秒/仓库)，LuCI 页面 load() 同步等待导致无限"正在载入视图…"。
+# 禁网时可用包列表为空、已安装列表不受影响；联网后页面自动/手动"更新列表"即预热缓存。
+if [ $ipkg_bin = "apk" ]; then
+\tnrepo=$(cat /etc/apk/repositories /etc/apk/repositories.d/*.list 2>/dev/null | grep -cv '^[[:space:]]*\\(#\\|$\\)')
+\tncache=$(ls /var/cache/apk/APKINDEX.* 2>/dev/null | wc -l)
+\t[ "$ncache" -ge "$nrepo" ] || apk_nonet="--no-network"
+fi
+'''
+if anchor not in s:
+    print('WARN: package-manager-call 形状已变，跳过 --no-network 补丁')
+    raise SystemExit(0)
+s = s.replace(anchor, guard, 1)
+n = s.count('$ipkg_bin query --fields all')
+s = s.replace('$ipkg_bin query --fields all', '$ipkg_bin $apk_nonet query --fields all')
+if n != 2:
+    print(f'WARN: package-manager-call query 行数异常({n} 处)，请人工核对')
+open(p, 'w').write(s)
+PYFIX
 # my-default-settings 的 Wi-Fi 探测脚本应覆盖 wifi-scripts 源文件，不能由两个 APK 同时拥有。
 if [ -f feeds/kiddin9/my-default-settings/files/etc/hotplug.d/ieee80211/10-wifi-detect ]; then
   cp -f feeds/kiddin9/my-default-settings/files/etc/hotplug.d/ieee80211/10-wifi-detect \
