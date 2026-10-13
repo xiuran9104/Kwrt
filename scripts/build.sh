@@ -181,6 +181,25 @@ if n != 2:
     print(f'WARN: package-manager-call query 行数异常({n} 处)，请人工核对')
 open(p, 'w').write(s)
 PYFIX
+# dl.openwrt.ai 的 25.12 树只有 ipk/opkg 格式（无任何 packages.adb），APK 模式默认
+# 生成的 7 条仓库 URL 全部 404——固件 distfeeds.list 留空（customfeeds.list 仍可手动
+# 添加可用仓库，如自建 LAN 仓库）。若 kiddin9 将来上线 adb 树，删掉本段即可恢复。
+python3 - <<'PYFIX' || true
+p = 'include/feeds.mk'
+try:
+    s = open(p).read()
+except OSError:
+    raise SystemExit(0)
+start = s.find('define FeedSourcesAppendAPK')
+end = s.find('\nendef', start)
+if start < 0 or end < 0:
+    print('WARN: include/feeds.mk FeedSourcesAppendAPK 形状已变，跳过')
+    raise SystemExit(0)
+if 'touch $(1)' in s[start:end]:
+    raise SystemExit(0)  # 已打补丁
+s = s[:start] + 'define FeedSourcesAppendAPK\n\ttouch $(1)\n' + s[end + 1:]
+open(p, 'w').write(s)
+PYFIX
 # my-default-settings 的 Wi-Fi 探测脚本应覆盖 wifi-scripts 源文件，不能由两个 APK 同时拥有。
 if [ -f feeds/kiddin9/my-default-settings/files/etc/hotplug.d/ieee80211/10-wifi-detect ]; then
   cp -f feeds/kiddin9/my-default-settings/files/etc/hotplug.d/ieee80211/10-wifi-detect \
