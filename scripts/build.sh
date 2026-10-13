@@ -80,6 +80,8 @@ rm -rf package/nss-packages package/sqm-scripts-nss
 [ -f devices/$TARGET/diy.sh ] && bash devices/$TARGET/diy.sh || true
 # LiBwrt 每轮重克隆 mac80211，其 999-800 补丁内含二级指针 bug，固定 sed 修复（抗上游漂移）
 sed -i "s|+\tdev_set_threaded(\\&ar->napi_dev, true);|+\tdev_set_threaded(ar->napi_dev, true);|g" package/kernel/mac80211/patches/nss/ath10k/999-800-ath10k-Add-threaded-napi.patch 2>/dev/null || true
+# 上游 op-packages 若出现与 quectel-cm 同名重复定义的包目录会导致 Kconfig 自引用死循环，剔除之
+rm -rf feeds/kiddin9/quectel_cm_5G package/feeds/kiddin9/quectel_cm_5G
 # 与 CI workflow 一致：展平 diy/ 覆盖层进源码树（NSS 支持、自研包等）
 cp -Rf ./diy/* ./ || true
 # 设备补丁（与 CI workflow Apply patches 逻辑一致）
