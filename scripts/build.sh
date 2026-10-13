@@ -41,6 +41,7 @@ cd openwrt
 export PATH="$PWD/.tools/bin:$PATH"
 # 运行期可找到 conda ncurses/tinfo（如宿主工具执行需要）
 export LD_LIBRARY_PATH="$HOME/.local/share/mise/installs/conda-ncurses/$(ls $HOME/.local/share/mise/installs/conda-ncurses | grep -E "^[0-9]" | head -1)/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PKG_CONFIG_PATH="$HOME/.local/share/mise/installs/conda-ncurses/$(ls $HOME/.local/share/mise/installs/conda-ncurses | grep -E "^[0-9]+\.[0-9]+" | head -1)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
 echo "==== [4/5] 应用本地定制（配置 + 补丁） ===="
 source ../devices/common/settings.ini
