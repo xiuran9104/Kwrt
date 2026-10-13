@@ -94,6 +94,11 @@ cp -rn devices/common/patches devices/$TARGET/ 2>/dev/null || true
 find devices/$TARGET/patches -maxdepth 1 -name '*.revert.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% sh -c 'patch -R -N -p1 -F1 --dry-run -i "%" >/dev/null 2>&1 || patch -N --no-backup-if-mismatch -p1 -F1 -i "%" || echo "WARN: % 已应用或跳过"'
 find devices/$TARGET/patches -maxdepth 1 -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% sh -c 'patch -R -N -p1 -F1 --dry-run -i "%" >/dev/null 2>&1 || patch -N --no-backup-if-mismatch -p1 -F1 -i "%" || echo "WARN: % 已应用或跳过"'
 make defconfig
+# 强制 opkg 打包格式（apk 格式与 Kwrt 的 ~ 版本号不兼容）并确保签名密钥存在
+sed -i 's/^CONFIG_USE_APK=y/# CONFIG_USE_APK is not set/' .config
+make defconfig >/dev/null
+[ -f key-build ] || staging_dir/host/bin/usign -G -s key-build -p key-build.pub
+
 # 非无线平台关闭无线驱动（复刻 CI 行为）
 if ! echo "$TARGET" | grep -qE 'x86|armsr|bcm27|rockchip|sunxi|amlogic|siflower'; then
   sed -n '/# Wireless Drivers/,/# end of Wireless Drivers/p' .config | sed -e 's/=m/=n/' >> .config
