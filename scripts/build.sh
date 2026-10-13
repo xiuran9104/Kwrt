@@ -82,6 +82,34 @@ rm -rf package/nss-packages package/sqm-scripts-nss
 sed -i "s|+\tdev_set_threaded(\\&ar->napi_dev, true);|+\tdev_set_threaded(ar->napi_dev, true);|g" package/kernel/mac80211/patches/nss/ath10k/999-800-ath10k-Add-threaded-napi.patch 2>/dev/null || true
 # 上游 op-packages 若出现与 quectel-cm 同名重复定义的包目录会导致 Kconfig 自引用死循环，剔除之
 rm -rf feeds/kiddin9/quectel_cm_5G package/feeds/kiddin9/quectel_cm_5G
+# LiBwrt 0600-1 的 conntrack 段与 coolsnowwolf 613（tcp_no_window_check 系列全部 7 处）完全重复，
+# 且 0980-3 与 generic 980（UBI 警告消除）完全重复 → 删冗余段/hunk，抗上游漂移
+rm -f target/linux/qualcommax/patches-6.12/0980-3-mtd-silence-UBI-NAND-warnings.patch
+python3 - <<'PYFIX' || true
+p = 'target/linux/qualcommax/patches-6.12/0600-1-qca-nss-ecm-support-CORE.patch'
+try:
+    s = open(p).read()
+except OSError:
+    raise SystemExit(0)
+start = s.find('--- a/net/netfilter/nf_conntrack_ecache.c')
+end = s.find('--- a/net/ipv4/ip_gre.c')
+if start < 0 or end < 0 or end < start or 'tcp_no_window_check' not in s[start:end]:
+    raise SystemExit(0)  # 上游形状已变或已修复，跳过
+# 仅保留 ecache 段：删除 WARN_ON_ONCE（register_notifier 已改带 -EBUSY 的新形状）
+new_ecache = (
+    '--- a/net/netfilter/nf_conntrack_ecache.c\n'
+    '+++ b/net/netfilter/nf_conntrack_ecache.c\n'
+    '@@ -268,7 +268,6 @@ int nf_conntrack_register_notifier(struct net *net,\n'
+    ' \tmutex_lock(&nf_ct_ecache_mutex);\n'
+    ' \tnotify = rcu_dereference_protected(net->ct.nf_conntrack_event_cb,\n'
+    ' \t\t\t\t\t   lockdep_is_held(&nf_ct_ecache_mutex));\n'
+    '-\tWARN_ON_ONCE(notify);\n'
+    ' \tif (notify != NULL) {\n'
+    ' \t\tret = -EBUSY;\n'
+    ' \t\tgoto out_unlock;\n'
+)
+open(p, 'w').write(s[:start] + new_ecache + s[end:])
+PYFIX
 # apk 宿主工具在 GCC16 LTO 下链接失败（apk_error_str 丢失），关闭其 LTO
 sed -i "s/-Db_lto=true/-Db_lto=false/" package/system/apk/Makefile 2>/dev/null || true
 # apk 升级到 3.0.8（上游修复 GCC16 链接问题）；MIRROR_HASH 置 skip 走 gitlab 直连
