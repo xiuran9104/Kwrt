@@ -109,6 +109,25 @@ new_ecache = (
     ' \t\tgoto out_unlock;\n'
 )
 open(p, 'w').write(s[:start] + new_ecache + s[end:])
+
+# br_if.c 段：br_dev_update_stats 与 generic 953（shortcut-fe）完全重复，删 0600-1 的定义块
+lines = open(p).read().split('\n')
+seg_start = next((i for i, l in enumerate(lines) if l.startswith('--- a/net/bridge/br_if.c')), -1)
+if seg_start >= 0:
+    seg_end = next(i for i, l in enumerate(lines) if i > seg_start and l.startswith('--- a/'))
+    seg = lines[seg_start:seg_end]
+    if any(l.startswith('+void br_dev_update_stats(') for l in seg):
+        i0 = next(i for i, l in enumerate(seg) if l.startswith('+/* Update bridge statistics'))
+        j0 = next(i for i, l in enumerate(seg) if i > i0 and l.startswith('+EXPORT_SYMBOL_GPL(br_dev_update_stats);'))
+        if j0 + 1 < len(seg) and seg[j0 + 1].strip() in ('+', ''):
+            j0 += 1
+        removed = j0 - i0 + 1
+        seg[i0:j0 + 1] = []
+        # 只调整包含删除块的 hunk（i0 之前最近的 @@ 头），不能动同段其他 hunk
+        hdr = max(k for k in range(i0) if seg[k].startswith('@@'))
+        seg[hdr] = _re.sub(r' \+(\d+),(\d+) @@', lambda mm: f' +{mm.group(1)},{int(mm.group(2)) - removed} @@', seg[hdr], count=1)
+        lines[seg_start:seg_end] = seg
+        open(p, 'w').write('\n'.join(lines))
 PYFIX
 # apk 宿主工具在 GCC16 LTO 下链接失败（apk_error_str 丢失），关闭其 LTO
 sed -i "s/-Db_lto=true/-Db_lto=false/" package/system/apk/Makefile 2>/dev/null || true
