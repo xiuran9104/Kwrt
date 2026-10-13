@@ -129,8 +129,6 @@ if seg_start >= 0:
         lines[seg_start:seg_end] = seg
         open(p, 'w').write('\n'.join(lines))
 PYFIX
-# apk 宿主工具在 GCC16 LTO 下链接失败（apk_error_str 丢失），关闭其 LTO
-sed -i "s/-Db_lto=true/-Db_lto=false/" package/system/apk/Makefile 2>/dev/null || true
 # apk 升级到 3.0.8（上游修复 GCC16 链接问题）；MIRROR_HASH 置 skip 走 gitlab 直连
 sed -i "s|^PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=44dcdfc255c26a4e19a4a27f66a54169cce5ca72|; s|^PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=skip|; s|^PKG_VERSION=.*|PKG_VERSION=3.0.8|" package/system/apk/Makefile 2>/dev/null || true
 rm -f package/system/apk/patches/0001-openwrt-move-layer-db-to-temp-folder.patch package/system/apk/patches/0002-openwrt-wiki-help-link.patch package/system/apk/patches/0011-genhelp-reproducible-gzip.patch
@@ -141,9 +139,23 @@ cp -rn devices/common/patches devices/$TARGET/ 2>/dev/null || true
 find devices/$TARGET/patches -maxdepth 1 -name '*.revert.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% sh -c 'patch -R -N -p1 -F1 --dry-run -i "%" >/dev/null 2>&1 || patch -N --no-backup-if-mismatch -p1 -F1 -i "%" || echo "WARN: % 已应用或跳过"'
 find devices/$TARGET/patches -maxdepth 1 -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 2>/dev/null | sort -z | xargs -r -0 -I% sh -c 'patch -R -N -p1 -F1 --dry-run -i "%" >/dev/null 2>&1 || patch -N --no-backup-if-mismatch -p1 -F1 -i "%" || echo "WARN: % 已应用或跳过"'
 make defconfig
-# 强制 opkg 打包格式（apk 格式与 Kwrt 的 ~ 版本号不兼容）并确保签名密钥存在
-sed -i 's/^CONFIG_USE_APK=y/# CONFIG_USE_APK is not set/' .config
-make defconfig >/dev/null
+# apk 3.0.8 原生支持 ~ 版本后缀，保持上游版本格式和 apk 打包方式。
+# base-files 手工覆盖 VERSION；将 ~ 后的点去掉并补齐 APK 的 -rN 修订段。
+sed -i 's|$(PKG_RELEASE)~$(lastword $(subst -, ,$(REVISION)))|$(PKG_RELEASE)~$(subst .,,$(lastword $(subst -, ,$(REVISION))))-r1|g' \
+  package/base-files/Makefile
+# 部分第三方 feed 把发布号写进 PKG_VERSION，避免再追加 PKG_RELEASE 后形成 -rN-rN。
+find package feeds -type f -name Makefile -exec \
+  sed -i -E '/^[[:space:]]*PKG_VERSION[[:space:]]*:?=/ s/-r([0-9]+)$/~\1/' {} +
+# 新版 LuCI 将所选语言直接嵌入应用，不再提供旧的独立 ttyd 中文包。
+sed -i 's/ +luci-i18n-ttyd-zh-cn//' feeds/kiddin9/luci-app-quickstart/Makefile 2>/dev/null || true
+# my-default-settings 的 Wi-Fi 探测脚本应覆盖 wifi-scripts 源文件，不能由两个 APK 同时拥有。
+if [ -f feeds/kiddin9/my-default-settings/files/etc/hotplug.d/ieee80211/10-wifi-detect ]; then
+  cp -f feeds/kiddin9/my-default-settings/files/etc/hotplug.d/ieee80211/10-wifi-detect \
+    package/network/config/wifi-scripts/files/etc/hotplug.d/ieee80211/10-wifi-detect
+  rm -f feeds/kiddin9/my-default-settings/files/etc/hotplug.d/ieee80211/10-wifi-detect
+fi
+# APK 固件不安装 opkg；第三方 feed 必须在 feeds.conf 中登记才能进入 packages.adb。
+sed -i 's/^CONFIG_PACKAGE_opkg=y/# CONFIG_PACKAGE_opkg is not set/' .config
 [ -f key-build ] || staging_dir/host/bin/usign -G -s key-build -p key-build.pub
 
 # 非无线平台关闭无线驱动（复刻 CI 行为）

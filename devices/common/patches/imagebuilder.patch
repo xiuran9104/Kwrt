@@ -76,6 +76,12 @@
 
 --- a/target/imagebuilder/Makefile
 +++ b/target/imagebuilder/Makefile
+@@ -22,2 +22,3 @@
+ BUNDLER_PATH := $(subst $(space),:,$(filter-out $(TOPDIR)/%,$(subst :,$(space),$(PATH))))
+-BUNDLER_COMMAND := PATH=$(BUNDLER_PATH) $(XARGS) $(SCRIPT_DIR)/bundle-libraries.sh $(PKG_BUILD_DIR)/staging_dir/host
++BUNDLER_CC := $(if $(wildcard $(TOPDIR)/.tools/bin/gcc),$(TOPDIR)/.tools/bin/gcc,$(HOSTCC))
++BUNDLER_COMMAND := CC=$(BUNDLER_CC) PATH=$(BUNDLER_PATH) $(XARGS) $(SCRIPT_DIR)/bundle-libraries.sh $(PKG_BUILD_DIR)/staging_dir/host
+
 @@ -39,7 +39,8 @@ $(BIN_DIR)/$(IB_NAME).tar.zst: clean
  		./files/Makefile \
  		$(TMP_DIR)/.targetinfo \
@@ -101,7 +107,11 @@
 +	$(SED) '/openwrt_core/d' $(PKG_BUILD_DIR)/repositories.conf
  
  	# create an empty package index so `opkg` doesn't report an error
- 	touch $(PKG_BUILD_DIR)/packages/Packages
+	touch $(PKG_BUILD_DIR)/packages/Packages
+
+@@ -81,2 +83,2 @@ else
+-	  -exec $(CP) -t $(PKG_BUILD_DIR)/packages/ {} +
++	  -exec $(CP) {} $(PKG_BUILD_DIR)/packages/ \;
 
 --- a/target/imagebuilder/files/Makefile
 +++ b/target/imagebuilder/files/Makefile
