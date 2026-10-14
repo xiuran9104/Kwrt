@@ -1,10 +1,49 @@
 #!/bin/sh /etc/rc.common
 # WiFi Fusion：将 2.4G/5G 合并为同一 SSID 并开启 802.11k/v 漫游
 # 可选集成 usteer：AP 主动 band steering（信号阈值引导 + 弱信号剔除）
+#
+# fuse  —— 启用融合：备份各接口原始 SSID/密码，去掉 -5G/-2.4G 后缀取基础名合并，
+#          统一密码（配置值 → 任一接口现有密码，密码为空则拒绝合并）
+# split —— 关闭融合：按备份（或 基础名+频段后缀）恢复独立 SSID 与密码，
+#          移除 802.11k/v 相关开关，停用 usteer
 START=95
 STOP=10
 
 SECTION="config"
+EXTRA_COMMANDS="fuse split"
+EXTRA_HELP="	fuse	启用双频合一（备份原始 SSID 并合并）
+	split	关闭双频合一（恢复原始 SSID）"
+
+list_ifaces() {
+	uci -q show wireless 2>/dev/null | sed -n 's/^wireless\.\([^.=]*\)=wifi-iface$/\1/p'
+}
+
+# 去掉 SSID 末尾的频段后缀（-5G / _2.4G / 5g 等），返回基础名
+strip_suffix() {
+	local s="$1" v sep
+	for v in "5G" "5g" "2.4G" "2.4g" "2G" "2g" "6G" "6g"; do
+		for sep in "-" "_" " " ""; do
+			case "$s" in
+				*"$sep$v") echo "${s%"$sep$v"}"; return 0;;
+			esac
+		done
+	done
+	echo "$s"
+}
+
+# 输出设备频段：2g / 5g / 6g
+radio_band() {
+	local dev="$1" band hwmode ch
+	band=$(uci -q get wireless.$dev.band)
+	case "$band" in 2g|5g|6g) echo "$band"; return 0;; esac
+	hwmode=$(uci -q get wireless.$dev.hwmode)
+	case "$hwmode" in
+		11a*|11ac*|11na*|11axa*|11bea*) echo 5g; return 0;;
+		11b*|11g*|11axg*|11beg*) echo 2g; return 0;;
+	esac
+	ch=$(uci -q get wireless.$dev.channel)
+	case "$ch" in ''|auto|[0-9]|1[0-4]) echo 2g;; *) echo 5g;; esac
+}
 
 ensure_usteer_config() {
 	[ -f /etc/config/usteer ] || cat > /etc/config/usteer <<'EOF'
@@ -21,6 +60,7 @@ config usteer
 EOF
 }
 
+# $1=off 时强制停用（split 场景），否则跟随 wififusion.config.usteer_enabled
 apply_usteer() {
 	local uenabled interval minsnr kicksnr
 	config_get uenabled "$SECTION" usteer_enabled 0
@@ -30,7 +70,7 @@ apply_usteer() {
 
 	ensure_usteer_config
 	[ -n "$(uci -q show usteer 2>/dev/null)" ] || return 0
-	if [ "$uenabled" = "1" ]; then
+	if [ "$1" != "off" ] && [ "$uenabled" = "1" ]; then
 		uci set usteer.@usteer[0].band_steering_interval="$interval"
 		uci set usteer.@usteer[0].band_steering_min_snr="$minsnr"
 		uci set usteer.@usteer[0].min_snr="$kicksnr"
@@ -49,46 +89,146 @@ apply_usteer() {
 	fi
 }
 
-apply_fusion() {
-	local enabled ssid key encryption
-	config_get enabled "$SECTION" enabled 0
-	[ "$enabled" = "1" ] || { logger -t wififusion "未启用，跳过"; return 0; }
-	config_get ssid "$SECTION" ssid ""
-	config_get key "$SECTION" key ""
-	config_get encryption "$SECTION" encryption ""
+fuse() {
+	local ifaces iface dev cur base fused key enc o v changed=0
+	ifaces=$(list_ifaces)
+	[ -n "$ifaces" ] || { echo "FAIL: 未找到无线接口"; return 1; }
 
-	[ -z "$ssid" ] && { logger -t wififusion "未设置 SSID，跳过"; return 1; }
+	# 统一密码：配置值 → 任一接口现有密码；允许为空（= 开放网络，加密方式置 none）
+	key=$(uci -q get wififusion.$SECTION.key)
+	if [ -z "$key" ]; then
+		for iface in $ifaces; do
+			key=$(uci -q get wireless.$iface.key)
+			[ -n "$key" ] && break
+		done
+	fi
+	if [ -n "$key" ]; then
+		uci set wififusion.$SECTION.key="$key"
+	else
+		uci set wififusion.$SECTION.encryption="none"
+	fi
 
-	local changed=0 iface dev
-	for iface in $(uci -q show wireless | sed -n "s/^\(.*\)=wifi-iface$/\1/p" | cut -d. -f2); do
-		[ "$(uci -q get wireless.$iface.ssid)" != "$ssid" ] && {
-			uci set wireless.$iface.ssid="$ssid"; changed=1
-		}
-		[ -n "$key" ] && { uci set wireless.$iface.key="$key"; changed=1; }
-		[ -n "$encryption" ] && { uci set wireless.$iface.encryption="$encryption"; changed=1; }
+	# 统一 SSID：配置值 → 各接口基础名（去频段后缀，如 Kwrt-5G/Kwrt-2.4G → Kwrt）
+	fused=$(uci -q get wififusion.$SECTION.ssid)
+	if [ -z "$fused" ]; then
+		for iface in $ifaces; do
+			base=$(strip_suffix "$(uci -q get wireless.$iface.ssid)")
+			if [ -n "$base" ]; then fused="$base"; break; fi
+		done
+	fi
+	[ -n "$fused" ] || { echo "FAIL: 无法确定统一 SSID"; return 1; }
+	uci set wififusion.$SECTION.ssid="$fused"
+
+	for iface in $ifaces; do
+		# 备份原始 SSID/密码（仅首次，且当前 SSID 不等于融合目标名——
+		# 否则会把"已融合状态"误存为原始状态，导致 split 无法还原出频段后缀）
+		cur=$(uci -q get wireless.$iface.ssid)
+		if [ "$cur" != "$fused" ]; then
+			uci -q get wififusion.$SECTION.bak_$iface >/dev/null 2>&1 || \
+				uci set wififusion.$SECTION.bak_$iface="$cur"
+			uci -q get wififusion.$SECTION.bak_key_$iface >/dev/null 2>&1 || \
+				uci set wififusion.$SECTION.bak_key_$iface="$(uci -q get wireless.$iface.key)"
+		fi
+
+		[ "$(uci -q get wireless.$iface.ssid)" != "$fused" ] && { uci set wireless.$iface.ssid="$fused"; changed=1; }
+		if [ -n "$key" ]; then
+			[ "$(uci -q get wireless.$iface.key)" != "$key" ] && { uci set wireless.$iface.key="$key"; changed=1; }
+			enc=$(uci -q get wififusion.$SECTION.encryption)
+			[ -n "$enc" ] && [ "$enc" != "none" ] && [ "$(uci -q get wireless.$iface.encryption)" != "$enc" ] && {
+				uci set wireless.$iface.encryption="$enc"; changed=1; }
+		elif [ "$(uci -q get wireless.$iface.encryption)" != "none" ]; then
+			uci set wireless.$iface.encryption="none"
+			uci -q delete wireless.$iface.key
+			changed=1
+		fi
 		# 802.11k/v 频段漫游（band steering）核心开关
 		for opt in ieee80211k:1 ieee80211v:1 bss_transition:1 wnm_sleep_mode:1 time_advertisement:2; do
 			o=${opt%%:*}; v=${opt##*:}
-			uci set wireless.$iface.$o="$v"
+			[ "$(uci -q get wireless.$iface.$o)" != "$v" ] && { uci set wireless.$iface.$o="$v"; changed=1; }
 		done
 		uci set wireless.$iface.time_zone="GMT0"
-		changed=1
 		# 确保射频未被禁用
 		dev=$(uci -q get wireless.$iface.device)
 		[ -n "$dev" ] && uci -q set wireless.$dev.disabled=0
 	done
 
+	uci set wififusion.$SECTION.enabled=1
 	uci commit wireless
-	if [ "$changed" = "1" ]; then
-		logger -t wififusion "双频合一已应用：SSID=$ssid，802.11k/v 漫游开启"
-		wifi reload
-	fi
+	uci commit wififusion
+	logger -t wififusion "双频合一已应用：SSID=$fused，802.11k/v 漫游开启"
+	[ "$changed" = "1" ] && wifi reload
+	config_load wififusion
 	apply_usteer
+	echo "OK: 已合并为 $fused（密码沿用现有非空密码）"
+}
+
+split() {
+	local ifaces iface dev bak bkey ssid fused suffix o changed=0
+	ifaces=$(list_ifaces)
+	[ -n "$ifaces" ] || { echo "FAIL: 未找到无线接口"; return 1; }
+	fused=$(uci -q get wififusion.$SECTION.ssid)
+
+	for iface in $ifaces; do
+		bak=$(uci -q get wififusion.$SECTION.bak_$iface)
+		if [ -n "$bak" ]; then
+			ssid="$bak"
+			uci -q delete wififusion.$SECTION.bak_$iface
+		else
+			# 无备份时按 基础名+频段后缀 派生（Kwrt → Kwrt-2.4G / Kwrt-5G）
+			dev=$(uci -q get wireless.$iface.device)
+			case "$(radio_band "$dev")" in
+				5g) suffix="-5G";;
+				6g) suffix="-6G";;
+				*)  suffix="-2.4G";;
+			esac
+			ssid="$(strip_suffix "$fused")$suffix"
+		fi
+		[ "$(uci -q get wireless.$iface.ssid)" != "$ssid" ] && { uci set wireless.$iface.ssid="$ssid"; changed=1; }
+
+		bkey=$(uci -q get wififusion.$SECTION.bak_key_$iface)
+		if [ -n "$bkey" ]; then
+			[ "$(uci -q get wireless.$iface.key)" != "$bkey" ] && { uci set wireless.$iface.key="$bkey"; changed=1; }
+			uci -q delete wififusion.$SECTION.bak_key_$iface
+		fi
+
+		# 移除融合时加的 802.11k/v 开关，恢复原样
+		for o in ieee80211k ieee80211v bss_transition wnm_sleep_mode time_advertisement time_zone; do
+			uci -q delete wireless.$iface.$o && changed=1
+		done
+	done
+
+	uci set wififusion.$SECTION.enabled=0
+	uci commit wireless
+	uci commit wififusion
+	logger -t wififusion "双频合一已关闭，恢复独立 SSID"
+	[ "$changed" = "1" ] && wifi reload
+	config_load wififusion
+	apply_usteer off
+	echo "OK: 已恢复独立 SSID"
+}
+
+# 开机时若已关闭但检测到仍处于合并态（如升级残留）才执行还原，避免每次重启都 reload
+split_if_fused() {
+	local iface fused
+	fused=$(uci -q get wififusion.$SECTION.ssid)
+	[ -n "$fused" ] || return 0
+	for iface in $(list_ifaces); do
+		if [ "$(uci -q get wireless.$iface.ssid)" = "$fused" ]; then
+			split
+			return 0
+		fi
+	done
 }
 
 start() {
 	config_load wififusion
-	apply_fusion
+	local enabled
+	config_get enabled "$SECTION" enabled 0
+	if [ "$enabled" = "1" ]; then
+		fuse >/dev/null 2>&1
+	else
+		split_if_fused >/dev/null 2>&1
+	fi
 }
 
 restart() { start; }

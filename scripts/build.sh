@@ -200,6 +200,75 @@ if 'touch $(1)' in s[start:end]:
 s = s[:start] + 'define FeedSourcesAppendAPK\n\ttouch $(1)\n' + s[end + 1:]
 open(p, 'w').write(s)
 PYFIX
+# 无线页面顶部注入"WiFi 双频合一"开关栏（luci-app-wififusion 的 fuse/split 命令）。
+# 未安装 wififusion 时该栏自动隐藏；feed 重置/升级后由此重新注入。
+python3 - <<'PYFIX' || true
+p = 'feeds/kiddin9/luci-mod-network/htdocs/luci-static/resources/view/network/wireless.js'
+try:
+    s = open(p).read()
+except OSError:
+    raise SystemExit(0)
+if 'render_wififusion_bar' in s:
+    raise SystemExit(0)  # 已注入
+tail_anchor = "\t\t\treturn E([ nodes, E('h3', _('Associated Stations')), table ]);"
+head_anchor = 'return view.extend({'
+if tail_anchor not in s or head_anchor not in s or s.count(head_anchor) != 1:
+    print('WARN: wireless.js 形状已变，跳过双频合一开关注入')
+    raise SystemExit(0)
+inject = '''/* ---- WiFi 双频合一（luci-app-wififusion）：页面顶部开关 ---- */
+function wififusion_apply(enable) {
+	ui.showModal(_('WiFi 双频合一'), [
+		E('p', { 'class': 'spinning' },
+			enable ? _('正在合并双频 SSID 并应用漫游设置…') : _('正在恢复独立 SSID…'))
+	]);
+
+	return fs.exec_direct('/etc/init.d/wififusion', [ enable ? 'fuse' : 'split' ], 'text', null, true).then(function(res) {
+		const out = String(res || '').trim();
+
+		ui.hideModal();
+
+		if (out.indexOf('FAIL') == 0)
+			ui.addNotification(null, E('p', {}, out));
+		else
+			window.location.reload();
+	}).catch(function(e) {
+		ui.hideModal();
+		ui.addNotification(null, E('p', {}, _('操作失败: %s').format(e.message || e)));
+	});
+}
+
+function render_wififusion_bar() {
+	const enabled = uci.get('wififusion', 'config', 'enabled');
+
+	if (enabled == null)
+		return E([]);
+
+	return E('div', { 'class': 'cbi-map', 'id': 'wififusion-bar' }, [
+		E('h2', {}, _('WiFi 双频合一')),
+		E('div', { 'class': 'cbi-map-descr' }, [
+			E('span', enabled == '1'
+				? _('已启用：两个频段共用同一 SSID，802.11k/v 与 usteer 自动漫游生效。')
+				: _('已关闭：各频段使用独立 SSID（如 Kwrt 与 Kwrt-5G）。')),
+			E('br'),
+			E('span', _('启用时自动去掉 SSID 的 -5G/-2.4G 后缀取基础名并统一密码（密码留空则合并为开放网络）；关闭时恢复各频段原 SSID 与密码。'))
+		]),
+		E('p', {}, E('button', {
+			'class': 'cbi-button ' + (enabled == '1' ? 'cbi-button-neutral' : 'cbi-button-positive'),
+			'click': function(ev) {
+				ev.currentTarget.disabled = true;
+				wififusion_apply(enabled != '1');
+			},
+			'disabled': isReadonlyView || null
+		}, enabled == '1' ? _('关闭双频合一（恢复独立 SSID）') : _('启用双频合一（同名 SSID 漫游）')))
+	]);
+}
+
+'''
+s = s.replace(head_anchor, inject + head_anchor, 1)
+s = s.replace(tail_anchor, "\t\t\treturn E([ render_wififusion_bar(), nodes, E('h3', _('Associated Stations')), table ]);", 1)
+open(p, 'w').write(s)
+print('wireless.js: 双频合一开关栏已注入')
+PYFIX
 # my-default-settings 的 Wi-Fi 探测脚本应覆盖 wifi-scripts 源文件，不能由两个 APK 同时拥有。
 if [ -f feeds/kiddin9/my-default-settings/files/etc/hotplug.d/ieee80211/10-wifi-detect ]; then
   cp -f feeds/kiddin9/my-default-settings/files/etc/hotplug.d/ieee80211/10-wifi-detect \

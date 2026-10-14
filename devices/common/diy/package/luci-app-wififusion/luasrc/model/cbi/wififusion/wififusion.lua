@@ -15,12 +15,13 @@ o.datatype = "maxlength(32)"
 o.placeholder = "Kwrt"
 
 o = s:option(Value, "key", translate("统一密码"))
-o.datatype = "wpakey"
+o.placeholder = translate("留空 = 开放网络（不加密）")
 
 o = s:option(ListValue, "encryption", translate("加密方式"))
 o:value("psk2", "WPA2-PSK（兼容性最好）")
 o:value("sae-mixed", "WPA2/WPA3 混合（推荐，新设备更安全）")
 o:value("sae", "WPA3-SAE（仅新设备）")
+o:value("none", "不加密（开放网络，密码留空时自动选择）")
 o.default = "psk2"
 
 m.on_after_commit = function()

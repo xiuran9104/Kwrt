@@ -1,0 +1,15 @@
+{
+	"luci-app-wififusion": {
+		"description": "Grant access to WiFi fusion configuration",
+		"read": {
+			"uci": [ "wififusion", "wireless" ]
+		},
+		"write": {
+			"uci": [ "wififusion" ],
+			"file": {
+				"/etc/init.d/wififusion fuse": [ "exec" ],
+				"/etc/init.d/wififusion split": [ "exec" ]
+			}
+		}
+	}
+}
